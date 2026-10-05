@@ -1,0 +1,13 @@
+interface:
+  display_name: 足球临盘盘口分析
+  short_description: 抓取并研判足球欧亚匹配、深浅盘、水位、波胆与临盘变化
+  default_prompt: 使用 $analyze-football-odds 抓取这场比赛的初盘与临盘数据，先用欧赔判断热度并估算理论亚盘，再分析深浅盘、欧亚一致性、诱盘护盘和波胆异常。
+  icon_small: assets/icon.svg
+  icon_large: assets/icon.svg
+policy:
+  products:
+  - chatgpt
+  - codex
+  - api
+  - atlas
+  allow_implicit_invocation: true
