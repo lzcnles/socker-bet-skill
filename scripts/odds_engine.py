@@ -163,29 +163,42 @@ def analyze(mid, htmls, label, use_trajectory=True):
            "push": {}, "heat": None, "push_total": 0,
            "lb_from_trajectory": False}
 
+    lb = None
     if "立*" in yp:
         v = yp["立*"]["raw"]
         lb = dict(iw=ov(v[0][0]), ih=hcpv(v[1][0], v[1][1]), il=ov(v[2][0]),
                   cw=ov(v[3][0]), ch=hcpv(v[4][0], v[4][1]), cl=ov(v[5][0]))
         out["lb_ypdb"] = dict(lb)
 
-        if use_trajectory:
-            traj = parse_zhishu(htmls.get(f"{mid}/zhishu", ""))
-            if traj:
-                latest = traj[0]
-                th = hcp_text(latest.get("hcp"))
-                if latest.get("hw") is not None and latest.get("aw") is not None \
-                        and th is not None:
-                    stale = (lb["cw"], lb["ch"], lb["cl"]) != \
-                            (latest["hw"], th, latest["aw"])
-                    lb = dict(lb, cw=latest["hw"], ch=th, cl=latest["aw"])
+    if use_trajectory:
+        traj = parse_zhishu(htmls.get(f"{mid}/zhishu", ""))
+        if traj:
+            latest, first = traj[0], traj[-1]
+            th = hcp_text(latest.get("hcp"))
+            got = (latest.get("hw") is not None and latest.get("aw") is not None
+                   and th is not None)
+            if lb is None:
+                # 立博 has no ypdb row for this match — its own trajectory page
+                # still carries the line, so fall back to it entirely.
+                if got:
+                    lb = dict(iw=first.get("hw"), ih=hcp_text(first.get("hcp")),
+                              il=first.get("aw"),
+                              cw=latest["hw"], ch=th, cl=latest["aw"])
                     out["lb_from_trajectory"] = True
-                    out["lb_traj_stale"] = stale
+                    out["lb_traj_only"] = True
                     out["lb_traj_rel"] = latest.get("rel")
-        out["lb"] = lb
+            elif got:
+                out["lb_traj_stale"] = (lb["cw"], lb["ch"], lb["cl"]) != \
+                                       (latest["hw"], th, latest["aw"])
+                out["lb_traj_rel"] = latest.get("rel")
+                lb = dict(lb, cw=latest["hw"], ch=th, cl=latest["aw"])
+                out["lb_from_trajectory"] = True
 
+    out["lb"] = lb
+
+    if lb is not None and lb.get("ch") is not None:
         mains = {n: yp[n] for n in MAIN if n in yp}
-        if mains and lb["ch"] is not None:
+        if mains:
             mh = [hcpv(d["raw"][4][0], d["raw"][4][1]) for d in mains.values()]
             mh = [h for h in mh if h is not None]
             if mh:
