@@ -1,0 +1,37 @@
+{
+  "batch": "第 30 批：2026-10-15 欧联杯联赛阶段（16 场）",
+  "competition": "UEFA Europa League 2026/27 — League Phase",
+  "kickoff_local": "2026-10-15 (CST 深夜 → 2026-10-16 凌晨)",
+  "results_verified_at": "2026-10-16T17:35:00+08:00",
+  "results_status": "赛果已核实；赔率快照待用户提供",
+  "result_sources": [
+    "https://sport.quotidiano.net/calcio/europa-league/europa-league-i-risultati-di-giovedi-15-ottobre-poker-leverkusen-con-schick-23864d83",
+    "https://onefootball.com/en/matches/yesterday?date=2026-10-15",
+    "https://www.livesoccertv.com/news/601381/kolo-muani-nets-last-gasp-winner-as-juventus-edge-celta-vigo-in-europa-league/",
+    "https://www.deutschlandfunk.de/bayer-leverkusen-siegt-in-der-europa-league-mit-4-0-bei-lech-posen-108.html"
+  ],
+  "odds_source_status": "BLOCKED — fenxi.zgzcw.com / odds.zgzcw.com / m.zgzcw.com 均 HTTP 418 (CloudWAF); OddsPortal 赔率为 JS 渲染，HTML 无赔率值",
+  "matches": [
+    {"no": 1,  "home": "Lech Poznan",         "away": "Bayer Leverkusen",     "hg": 0, "ag": 4, "ht": null, "notes": "29' 点球 + 40' 点球 Schick, 32' Tillman, 89' Maza"},
+    {"no": 2,  "home": "Lyon",                "away": "Crystal Palace",       "hg": 3, "ag": 2, "ht": null, "notes": "8' Tolisso, 45+2' Nuamah, 51' Pino, 76' Sulc, 82' Kamada"},
+    {"no": 3,  "home": "Benfica",             "away": "Celtic",               "hg": 4, "ag": 1, "ht": null, "notes": "5' 点球 + 36' J.Duran, 23' Bah, 63' C.Duran, 89' Pavlidis"},
+    {"no": 4,  "home": "Marseille",           "away": "Olympiacos",           "hg": 0, "ag": 1, "ht": null, "notes": "42' Hezze"},
+    {"no": 5,  "home": "Hoffenheim",          "away": "Besiktas",             "hg": 2, "ag": 3, "ht": null, "notes": "60' Murillo, 68' Asllani, 73'+79' Oh, 88' Machida"},
+    {"no": 6,  "home": "Bournemouth",         "away": "Sturm Graz",           "hg": 3, "ag": 0, "ht": null, "notes": "43' Evanilson, 76' Rayan, 90+2' 点球 Rodriguez"},
+    {"no": 7,  "home": "AZ Alkmaar",          "away": "Hapoel Beer Sheva",    "hg": 2, "ag": 1, "ht": null, "notes": "49' P.Koopmeiners, 55' Forson, 78' 点球 Meerdink"},
+    {"no": 8,  "home": "Torreense",           "away": "Sunderland",           "hg": 1, "ag": 2, "ht": null, "notes": "37' Feltes, 68' Akoha, 90+3' Sadiki"},
+    {"no": 9,  "home": "Union Saint-Gilloise", "away": "Real Sociedad",       "hg": 1, "ag": 1, "ht": null, "notes": "46' Turrientes, 89' Keita"},
+    {"no": 10, "home": "Sparta Prague",       "away": "Lillestrom",           "hg": 1, "ag": 1, "ht": null, "notes": "56' Alcocer, 90+2' Olsen"},
+    {"no": 11, "home": "NK Celje",            "away": "Omonia",               "hg": 0, "ag": 3, "ht": null, "notes": "17' Montnor, 60' Tankovic, 85' Coulibaly"},
+    {"no": 12, "home": "Dinamo Zagreb",       "away": "Anderlecht",           "hg": 1, "ag": 0, "ht": null, "notes": "90+6' 点球 Beljo"},
+    {"no": 13, "home": "Ferencvaros",         "away": "Viktoria Plzen",       "hg": 2, "ag": 1, "ht": null, "notes": "49'+81' 点球 Zachariassen, 90' Visinsky"},
+    {"no": 14, "home": "Rennes",              "away": "OFI Crete",            "hg": 2, "ag": 1, "ht": null, "notes": "10' Fountas, 76' Nagida, 90' Boudlal"},
+    {"no": 15, "home": "NEC Nijmegen",        "away": "Levski Sofia",         "hg": 1, "ag": 1, "ht": null, "notes": "36' Reinaldo, 64' Chery"},
+    {"no": 16, "home": "Jagiellonia Bialystok", "away": "Ararat-Armenia",     "hg": 3, "ag": 1, "ht": null, "notes": "11' Banjaqui, 13' Jozwiak, 38' Conceicao, 52' Sow"}
+  ],
+  "caveats": [
+    "半场比分 (ht) 尚未逐场核实，全部标 null —— SKILL 回测要求分离全场/半场。",
+    "Celta Vigo 1-2 Juventus 属同一轮次但为 10-14 进行（非 10-15 周四批），如需并入须另行确认。",
+    "10-15 同日另有欧冠 6 场（LASK 3-6 Liverpool、Feyenoord 3-2 Como、Aston Villa 6-0 Fenerbahce、Real Betis 3-2 Porto、Roma 3-4 Real Madrid），不属本批欧联口径。"
+  ]
+}

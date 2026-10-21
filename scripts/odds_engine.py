@@ -296,3 +296,241 @@ def rules(r):
         if min(h["dpp"]) <= -5:
             tags.append(f"热度消退{min(h['dpp'])}pp")
     return tags
+
+
+# ---------------------------------------------------------------------------
+# decide() — improved rule chain, 2026-10-20
+#
+# Why this exists alongside rules(): rules() only *labels* a match, so a
+# 避雷 condition and an opposite bet signal can both fire on the same match
+# (e.g. 浅盘避雷 + 宽平水→下盘不败). SKILL.md is explicit that 浅盘避雷 takes
+# priority over everything else, but a tag list cannot express priority — the
+# old consumer had to remember to check. That is exactly how the 10-15 欧联
+# batch ended up using the since-deleted 立博让方水位方向 clause to override a
+# 避雷 reading. decide() makes the veto structural: when it fires, no betting
+# signal is emitted at all, and the suppressed candidates are returned in
+# blocked[] so the avoidance can still be scored.
+#
+# Changes vs rules(), each tied to documented evidence in backtesting.md:
+#   1. 浅盘避雷 is a hard veto, not a tag.                      (82%, 全场最高)
+#   2. 宽平水 threshold tightened 0.08 -> 0.13.  wd 0.08-0.12 measured
+#      1/5 = 20%, wd >=0.13 measured 3/3.  (weak-band MISSes)
+#   3. 深盘高水 demoted to 不碰 only — never a direction.
+#      56% and explicitly negative-value vs the 70% base rate.
+#   4. 压平 >=30 stays an environment note only. 6/8 = 75%, formally 否决.
+#   5. 压客 >=25 forces 不败 format (not 胜). 客队共识近 15 场错 6.
+#   6. 主队共识 1.8-2.5 odds band forces 不败 format.  (FC东京/金泉/特鲁瓦)
+#   7. 规则6 carries an explicit hard-downgrade flag for 让方防线/门将伤缺>=2;
+#      the engine cannot see lineups, so the caller must supply it.
+#      The downgrade now keeps the 不败 observation (SKILL wording), instead
+#      of returning a blanket 不出.  Napoli 4:3 Bodo (10-20) hit 不败 while
+#      the net proposition was suppressed.
+#   8. Returns an explicit no_signal decision instead of forcing a pick.
+#      Forcing a direction on a no-signal match is how accuracy gets inflated.
+#   9. 规则6 + 压主 >=90% is a consensus-overheat trap: keep only the 不败
+#      observation, never issue the net proposition.  0/3: Inter 3:4 (93%),
+#      Fenerbahce 2:2 (96%), Porto 0:1 (100%).
+#  10. A >=75% closing base probability overrides a contradictory price
+#      consensus.  Man City 5:1 AEK: 86% base, 72% away push; the old engine
+#      said 客队不败.  The push was an opening-price correction, not a signal.
+#  11. 压客 >=40 + 立博让方水位未降/盘口未升 -> 不出 (hard veto, not a
+#      half-tier downgrade).  Osasuna 2:0 (10-18), Stuttgart 1:1 (10-20).
+#  12. 规则6 is mechanically equal-weighted (10-14); heat resonance is only a
+#      warning, never a tier boost.
+# ---------------------------------------------------------------------------
+
+# Documented base rates, for the report only — never used to pick a side.
+BASE_RATE = {
+    "规则6->净胜命题": "全量 19/25=76% / 实战 14/18=78%; 现行无条件口径 6/8=75%; 压主>=90% 组 0/3 -> 降观察",
+    "规则6+压主>=90%": "0/3 (国米 3:4, 费内 2:2, 波尔图 0:1) -> 只留不败观察",
+    "基础概率>=75%覆盖反向共识": "曼城 5:1 AEK (86% base vs 72% away push) -> 主队胜",
+    "压客>=40+亚盘不配合": "Osasuna 2:0, Stuttgart 1:1 -> 2/2 不出正确 (让球盘)",
+    "宽平水->下盘不败": "实战 10/11=91% -> 全量 4/8=50% (wd>=0.13 分层 3/3)",
+    "浅盘避雷": "累计 18/25=72%~82%, 全场价值最高单条",
+    "深盘高水->不碰": "19/35=54%, 边际价值有限",
+    "压主共识": "3/3=100% (样本少)",
+    "压客共识": "近 15 场错 6 / 兑现 8 / 覆盖 1 -> 强制不败格式",
+}
+
+TIER_STRONG, TIER_NORMAL, TIER_HALF, TIER_OBSERVE = "⭐⭐", "⭐", "半档", "观察"
+
+
+SIDE_CN = {"home": "主队", "away": "客队"}
+
+
+def decide(r, *, fav_def_injuries=0):
+    """Turn one analyze() result into ONE deterministic decision + audit trail.
+
+    fav_def_injuries: number of injuries/suspensions to the favourite's
+    defensive line or goalkeeper (SKILL hard-downgrade condition). The engine
+    has no lineup data; the caller must pass it in, or the downgrade is skipped.
+    """
+    lb = r.get("lb") or {}
+    p = r.get("push") or {}
+    n = r.get("push_total") or 0
+    dd, wd, lw, side = r.get("dd"), r.get("wd"), r.get("lb_water"), r.get("lb_side")
+    heat = r.get("heat")
+    dpp = heat.get("dpp") if heat else None
+    out = {"label": r.get("label"), "mid": r.get("mid"),
+           "decision": None, "tier": None, "rule": None,
+           "blocked": [], "warnings": [], "inputs": {}}
+
+    def block(rule, why):
+        out["blocked"].append({"rule": rule, "reason": why})
+
+    if n:
+        out["inputs"] = {"dd": dd, "wd": wd, "lb_water": lw, "lb_side": side,
+                         "push": {k: f"{p.get(k, 0)}/{n}={round(p.get(k,0)/n*100)}%"
+                                  for k in ("home", "draw", "away")},
+                         "heat_dpp": dpp}
+
+    # --- priority 1: 浅盘避雷 is a VETO -------------------------------------
+    if dd is not None and lw is not None and dd <= -0.25 and lw > 0.75:
+        out["decision"] = "不出"
+        out["rule"] = "浅盘避雷"
+        out["tier"] = TIER_STRONG
+        # Record what the veto suppressed, so avoidance stays measurable.
+        # NOTE: dd <= -0.25 and 宽平水 (dd ~ 0) are mutually exclusive, so these
+        # two can never co-fire in reality — they are listed anyway so the audit
+        # trail is explicit and a future dd change cannot silently drop them.
+        if 0.13 <= (wd or 0) <= 0.2:
+            block("宽平水->下盘不败", "被浅盘避雷优先否决")
+        if p.get("home", 0) >= 25:
+            block("压主共识", "被浅盘避雷优先否决")
+        if p.get("away", 0) >= 25:
+            block("压客共识", "被浅盘避雷优先否决")
+        if dpp and max(dpp) >= 5:
+            out["warnings"].append(f"热度升温+{max(dpp)}pp 但避雷优先, 不翻案")
+        return out
+
+    # --- priority 2: 规则6 净胜命题 ----------------------------------------
+    if (dd is not None and dd <= -0.25 and lw is not None and lw <= 0.75
+            and (wd or 0) >= 0.205 and side in ("home", "away")):
+        side_heat = dpp[0 if side == "home" else 2] if dpp else None
+        # 10-14: rule 6 is mechanically equal-weighted. Heat resonance is
+        # recorded as an observation, never as a tier boost.
+        tier = TIER_NORMAL
+        if side_heat is not None and side_heat >= 5:
+            out["warnings"].append(
+                f"热度共振 +{side_heat}pp (10-14 机械等权, 不加码)")
+        # wd < 0.21 downgrades, it does NOT reject (SKILL: 降级为观察/轻仓)
+        if (wd or 0) < 0.21:
+            tier = TIER_HALF
+            out["warnings"].append(f"wd {wd} < 0.21 (历史 0/2 全败) -> 降半档")
+        if fav_def_injuries >= 2:
+            block("规则6->净胜命题",
+                  f"让方防线/门将伤缺 {fav_def_injuries} 人 -> 硬降级, 仅保留不败")
+            out["decision"] = f"{SIDE_CN[side]}不败"
+            out["rule"] = "规则6硬降级->不败观察"
+            out["tier"] = TIER_OBSERVE
+            return out
+        # 10-20: rule 6 + 压主 >=90% is a consensus-overheat trap.
+        # Fenerbahce 2:2 (96%), Porto 0:1 (100%), Inter 3:4 (93%) -> 0/3.
+        # Keep only the 不败 observation; never issue the net proposition.
+        if side == "home" and n and p.get("home", 0) / n >= 0.90:
+            block("规则6->净胜命题",
+                  f"压主 {p.get('home')}/{n} >=90% 极端共识 -> 降为观察")
+            out["decision"] = "主队不败"
+            out["rule"] = "规则6+压主>=90%->不败观察"
+            out["tier"] = TIER_OBSERVE
+            return out
+        if p.get("draw", 0) >= 15:
+            tier = TIER_HALF
+            out["warnings"].append(f"压平 {p.get('draw')}/{n} >=15 -> 平局属性强, 降档")
+        out["decision"] = f"{SIDE_CN[side]}净胜命题"
+        out["rule"] = "规则6->净胜命题"
+        out["tier"] = tier
+        return out
+
+    # --- priority 3: 宽平水 -> 下盘不败 (tightened wd >= 0.13) ---------------
+    # NOTE: never write `dd or <default>` here — dd == 0.0 (真平手盘) is falsy
+    # and would be silently replaced by the default.
+    if dd is not None and abs(dd) < 1e-9 and 0.13 <= (wd or 0) <= 0.2:
+        if lw is not None and lw >= 1.05:
+            out["decision"] = "不出"
+            out["rule"] = "宽平水降级(立博让方水>=1.05)"
+            out["tier"] = TIER_OBSERVE
+            out["warnings"].append("宽平水信号降级为观察项, 不单独出单")
+            return out
+        out["decision"] = "下盘不败"
+        out["rule"] = "宽平水->下盘不败"
+        out["tier"] = TIER_STRONG
+        return out
+
+    # --- priority 4: 深盘低水 -> 正路 (narrow, sample-poor) -----------------
+    if (dd or 0) >= 0.5 and lw is not None and lw <= 0.95 \
+            and (r.get("wd_signed") or 0) <= -0.08 and side in ("home", "away"):
+        out["decision"] = f"{side}胜"
+        out["rule"] = "深盘低水->正路"
+        out["tier"] = TIER_OBSERVE
+        out["warnings"].append("深盘低水样本 1/2, 仅观察")
+        return out
+
+    # --- priority 5: 共识 fallback -----------------------------------------
+    # 10-20: a >=75% closing base probability is the anchor. If the price
+    # consensus points to the opposite side, do not follow the consensus
+    # (Man City 5:1 AEK: 86% base, 72% away push, engine wrongly said 客队不败).
+    base = heat.get("cur") if heat else None
+    if base:
+        bi = max(range(3), key=lambda i: base[i])
+        base_side = ("home", "draw", "away")[bi]
+        cons_side = ("home" if p.get("home", 0) >= 25
+                     else ("away" if p.get("away", 0) >= 25 else None))
+        if base[bi] >= 75.0 and cons_side and cons_side != base_side:
+            out["decision"] = ("主队胜" if base_side == "home"
+                               else ("客队胜" if base_side == "away" else "平局"))
+            out["rule"] = "基础概率>=75%覆盖反向共识"
+            out["tier"] = TIER_NORMAL
+            out["warnings"].append(
+                f"基础概率 {base[bi]}% 指向 {base_side}, 压价共识指向 {cons_side} -> 不跟共识")
+            return out
+
+    if p.get("home", 0) >= 25:
+        over = p["home"] >= 40
+        t = TIER_HALF if over else TIER_NORMAL
+        if over:
+            out["warnings"].append(f"压主 {p['home']}/{n} >=40 共识过热 -> 降半档, 不因此加仓")
+        out["decision"] = "主队不败"
+        out["rule"] = "压主共识"
+        out["tier"] = t
+        return out
+    if p.get("away", 0) >= 25:
+        # 10-06: 压客 >=40 + 亚盘不配合 (立博让方水位未降 / 盘口未升)
+        # is a HARD no-bet, not merely a half-tier downgrade.
+        # Osasuna 2:0 (10-18), Stuttgart 1:1 (10-20) are the evidence.
+        if p["away"] >= 40:
+            lbw0 = lb.get("iw") if side == "home" else lb.get("il")
+            lbw1 = lb.get("cw") if side == "home" else lb.get("cl")
+            lbh0 = abs(lb["ih"]) if lb.get("ih") is not None else None
+            lbh1 = abs(lb["ch"]) if lb.get("ch") is not None else None
+            if None not in (lbw0, lbw1, lbh0, lbh1):
+                if lbw1 >= lbw0 - 0.005 and lbh1 <= lbh0 + 0.001:
+                    block("压客共识",
+                          "压客>=40 但立博让方水位未降/盘口未升 -> 不出")
+                    out["decision"] = "不出"
+                    out["rule"] = "压客>=40+亚盘不配合"
+                    out["tier"] = TIER_OBSERVE
+                    return out
+        over = p["away"] >= 40
+        t = TIER_HALF if over else TIER_NORMAL
+        if over:
+            out["warnings"].append(f"压客 {p['away']}/{n} >=40 共识过热 -> 降半档")
+        out["decision"] = "客队不败"          # 强制不败, 从不写客胜
+        out["rule"] = "压客共识"
+        out["tier"] = t
+        return out
+
+    # --- 深盘高水 / 压平: 不碰, 但绝不给方向 --------------------------------
+    if abs(lb.get("ch") or 0) >= 1.0 and lw is not None and lw >= 1.05:
+        out["decision"] = "不出"
+        out["rule"] = "深盘高水->让球盘不碰"
+        out["tier"] = TIER_OBSERVE
+        out["warnings"].append("深盘高水既非正路也非下盘, 不给方向")
+        return out
+    if p.get("draw", 0) >= 30:
+        out["warnings"].append(f"压平 {p['draw']}/{n} >=30 仅为环境项(6/8=75%, 已否决)")
+
+    out["decision"] = "无信号"
+    out["rule"] = "no_signal"
+    out["tier"] = TIER_OBSERVE
+    return out
