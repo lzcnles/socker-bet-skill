@@ -337,6 +337,10 @@ def rules(r):
 #      half-tier downgrade).  Osasuna 2:0 (10-18), Stuttgart 1:1 (10-20).
 #  12. 规则6 is mechanically equal-weighted (10-14); heat resonance is only a
 #      warning, never a tier boost.
+#  13. Data quality is a priority-0 veto: 立博 missing, or its latest
+#      trajectory >72h before kickoff (postponed/reopened match) -> no formal
+#      pick.  Sporting 2:3 (missing) and Levante 3:1 (844h stale) were the
+#      10-21 misses; Getafe 1:1 (102h stale) is the cost case.
 # ---------------------------------------------------------------------------
 
 # Documented base rates, for the report only — never used to pick a side.
@@ -345,6 +349,7 @@ BASE_RATE = {
     "规则6+压主>=90%": "0/3 (国米 3:4, 费内 2:2, 波尔图 0:1) -> 只留不败观察",
     "基础概率>=75%覆盖反向共识": "曼城 5:1 AEK (86% base vs 72% away push) -> 主队胜",
     "压客>=40+亚盘不配合": "Osasuna 2:0, Stuttgart 1:1 -> 2/2 不出正确 (让球盘)",
+    "数据质量->不出": "立博缺失/轨迹>72h: Sporting 2:3, Levante 3:1 (10-21); Getafe 1:1 反例 (10-19, 102h)",
     "宽平水->下盘不败": "实战 10/11=91% -> 全量 4/8=50% (wd>=0.13 分层 3/3)",
     "浅盘避雷": "累计 18/25=72%~82%, 全场价值最高单条",
     "深盘高水->不碰": "19/35=54%, 边际价值有限",
@@ -358,12 +363,17 @@ TIER_STRONG, TIER_NORMAL, TIER_HALF, TIER_OBSERVE = "⭐⭐", "⭐", "半档", "
 SIDE_CN = {"home": "主队", "away": "客队"}
 
 
-def decide(r, *, fav_def_injuries=0):
+def decide(r, *, fav_def_injuries=0, data_quality="ok"):
     """Turn one analyze() result into ONE deterministic decision + audit trail.
 
     fav_def_injuries: number of injuries/suspensions to the favourite's
     defensive line or goalkeeper (SKILL hard-downgrade condition). The engine
     has no lineup data; the caller must pass it in, or the downgrade is skipped.
+
+    data_quality: "ok" | "missing" | "stale". "missing" = no 立博 line in the
+    ypdb snapshot; "stale" = the latest 立博 trajectory is >72h before kickoff
+    (postponed/reopened match). Either is a priority-0 hard veto: no formal
+    pick at all. The caller must derive it from the source timestamps.
     """
     lb = r.get("lb") or {}
     p = r.get("push") or {}
@@ -383,6 +393,19 @@ def decide(r, *, fav_def_injuries=0):
                          "push": {k: f"{p.get(k, 0)}/{n}={round(p.get(k,0)/n*100)}%"
                                   for k in ("home", "draw", "away")},
                          "heat_dpp": dpp}
+
+    # --- priority 0: data quality is a HARD veto ---------------------------
+    # 10-22: 立博 missing, or its latest trajectory >72h before kickoff
+    # (postponed / line not reopened), is not a betting match. Sporting 2:3
+    # (missing) and Levante 3:1 (844h stale) were the 10-21 misses; Getafe
+    # 1:1 (102h stale) is the cost case where the no-bet forgoes a winner.
+    if data_quality not in (None, "ok"):
+        out["decision"] = "不出"
+        out["rule"] = "数据质量->不出正式单"
+        out["tier"] = TIER_OBSERVE
+        out["warnings"].append(
+            f"立博数据 {data_quality} -> 只观察, 不出正式单")
+        return out
 
     # --- priority 1: 浅盘避雷 is a VETO -------------------------------------
     if dd is not None and lw is not None and dd <= -0.25 and lw > 0.75:
