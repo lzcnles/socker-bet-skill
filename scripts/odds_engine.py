@@ -204,6 +204,12 @@ def analyze(mid, htmls, label, use_trajectory=True):
             if mh:
                 med = st.median(mh)
                 out["main_hcp_med"] = med
+                # Both sides' current water, for the 热度法 protection line.
+                for key, idx in (("main_w_home_med", 3), ("main_w_away_med", 5)):
+                    ws = [ov(d["raw"][idx][0]) for d in mains.values()]
+                    ws = [w for w in ws if w is not None]
+                    if ws:
+                        out[key] = st.median(ws)
                 out["dd"] = round(abs(lb["ch"]) - abs(med), 3)
                 s = _side(lb["ch"])
                 out["lb_side"] = s
@@ -335,6 +341,11 @@ def rules(r):
 #      said 客队不败.  The push was an opening-price correction, not a signal.
 #  11. 压客 >=40 + 立博让方水位未降/盘口未升 -> 不出 (hard veto, not a
 #      half-tier downgrade).  Osasuna 2:0 (10-18), Stuttgart 1:1 (10-20).
+#      Applies only when 立博's 让方 is the away team (11-01 fix).
+#  14. 热度法 protection line (heat side's main 让方 water <= 0.95) overrides
+#      the 压客 consensus: heat=home protected -> 主队不败 (半档); heat=away
+#      unprotected -> 不出.  10-31: Brentford 2:0, Villa 1:1, Coventry 3:1,
+#      AC Milan 3:1 -> 4/4.  Only wired into the 压客 branch so far.
 #  12. 规则6 is mechanically equal-weighted (10-14); heat resonance is only a
 #      warning, never a tier boost.
 #  13. Data quality is a priority-0 veto: 立博 missing, or its latest
@@ -361,6 +372,35 @@ TIER_STRONG, TIER_NORMAL, TIER_HALF, TIER_OBSERVE = "⭐⭐", "⭐", "半档", "
 
 
 SIDE_CN = {"home": "主队", "away": "客队"}
+
+PROTECT_LINE = 0.95
+
+
+def heat_protection(r):
+    """热度法 protection line -> (heat_side, protected) or (heat_side, None).
+
+    heat_side = closing de-vigged favourite of the 三机构 heat ("home"/"away";
+    "draw" or no heat -> None). protected = the main four companies' median
+    water on that side <= 0.95. Only defined when the heat side gives the
+    main line (or the main line is 平手); a heat side that *receives* has no
+    protection reading in SKILL, so it returns None.
+    """
+    heat = r.get("heat") or {}
+    cur = heat.get("cur")
+    if not cur or None in cur:
+        return None, None
+    bi = max(range(3), key=lambda i: cur[i])
+    if bi == 1:
+        return None, None
+    hs = "home" if bi == 0 else "away"
+    med = r.get("main_hcp_med")
+    w = r.get("main_w_home_med" if hs == "home" else "main_w_away_med")
+    if med is None or w is None:
+        return hs, None
+    giver = "home" if med > 0 else ("away" if med < 0 else hs)
+    if giver != hs:
+        return hs, None
+    return hs, w <= PROTECT_LINE
 
 
 def decide(r, *, fav_def_injuries=0, data_quality="ok"):
@@ -521,9 +561,13 @@ def decide(r, *, fav_def_injuries=0, data_quality="ok"):
         # 10-06: 压客 >=40 + 亚盘不配合 (立博让方水位未降 / 盘口未升)
         # is a HARD no-bet, not merely a half-tier downgrade.
         # Osasuna 2:0 (10-18), Stuttgart 1:1 (10-20) are the evidence.
-        if p["away"] >= 40:
-            lbw0 = lb.get("iw") if side == "home" else lb.get("il")
-            lbw1 = lb.get("cw") if side == "home" else lb.get("cl")
+        # 11-01: only when 立博's giving side IS the away team. With a home
+        # 让方, "让方水位未降" points the other way (home water rising backs
+        # the away push), so the veto misfired on Brentford 2:0 and Villa 1:1
+        # (10-31, both 主让 + 压客 >=40).
+        if p["away"] >= 40 and side == "away":
+            lbw0 = lb.get("il")
+            lbw1 = lb.get("cl")
             lbh0 = abs(lb["ih"]) if lb.get("ih") is not None else None
             lbh1 = abs(lb["ch"]) if lb.get("ch") is not None else None
             if None not in (lbw0, lbw1, lbh0, lbh1):
@@ -534,6 +578,25 @@ def decide(r, *, fav_def_injuries=0, data_quality="ok"):
                     out["rule"] = "压客>=40+亚盘不配合"
                     out["tier"] = TIER_OBSERVE
                     return out
+        # 11-01: 热度法 protection line wins over the away push consensus
+        # (SKILL: 冲突时以盘面保护为准). 10-31: Brentford 2:0 / Villa 1:1 had
+        # heat=home protected (main home water 0.86 / 0.84) against 压客 52 /
+        # 42; Coventry 3:1 / AC Milan 3:1 had heat=away unprotected (1.025 /
+        # 1.04) -> the away side lost both. n=4, so half tier / no-bet only.
+        hs, prot = heat_protection(r)
+        if hs == "home" and prot is True:
+            block("压客共识", "热度方向=主队且主流让方水位<=0.95 -> 以保护为准")
+            out["decision"] = "主队不败"
+            out["rule"] = "热度保护覆盖压客共识"
+            out["tier"] = TIER_HALF
+            return out
+        if hs == "away" and prot is False:
+            block("压客共识", "热度方向=客队但主流让方水位>0.95 (欧强亚浅) -> 不出")
+            out["decision"] = "不出"
+            out["rule"] = "压客共识+热度方未保护"
+            out["tier"] = TIER_OBSERVE
+            out["warnings"].append("热度方未保护 = 欧强亚浅背离, 反向风险并入")
+            return out
         over = p["away"] >= 40
         t = TIER_HALF if over else TIER_NORMAL
         if over:

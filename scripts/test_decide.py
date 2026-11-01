@@ -15,7 +15,8 @@ from odds_engine import decide, SIDE_CN  # noqa: E402
 
 
 def mk(dd=None, wd=None, lw=None, side="home", lb_ch=None, wd_signed=None,
-       push=None, dpp=None, label="T", lb_full=None, heat_cur=None):
+       push=None, dpp=None, label="T", lb_full=None, heat_cur=None,
+       main_hcp=None, mw_home=None, mw_away=None):
     total = sum((push or {}).values())
     heat = None
     if dpp is not None or heat_cur is not None:
@@ -28,6 +29,7 @@ def mk(dd=None, wd=None, lw=None, side="home", lb_ch=None, wd_signed=None,
         "lb": lb_full if lb_full is not None else {"ch": lb_ch},
         "push": push or {}, "push_total": total,
         "heat": heat,
+        "main_hcp_med": main_hcp, "main_w_home_med": mw_home, "main_w_away_med": mw_away,
     }
 
 
@@ -72,10 +74,40 @@ case("规则6 + 压主 >=90% -> 只保留不败观察, 不出净胜",
         push={"home": 50, "draw": 3, "away": 2}),
      {}, "主队不败", ["规则6->净胜命题"])
 
-case("压客>=40 + 立博让方水位未降/盘口未升 -> 不出",
-     mk(dd=0.0, lw=0.91, wd=0.10, lb_ch=0.5, side="home",
+case("压客>=40 + 立博让方(客队)水位未降/盘口未升 -> 不出",
+     mk(dd=0.0, lw=1.05, wd=0.10, lb_ch=-0.5, side="away",
         push={"home": 2, "draw": 18, "away": 46},
-        lb_full={"ch": 0.5, "ih": 0.5, "iw": 0.91, "cw": 0.91, "il": 0.80, "cl": 0.80}),
+        lb_full={"ch": -0.5, "ih": -0.5, "iw": 0.80, "cw": 0.80, "il": 1.05, "cl": 1.05}),
+     {}, "不出", ["压客共识"])
+
+# 11-01: veto scoped to 立博让方 = 客队. Real 10-31 inputs (23:15 / 23:25 snapshots).
+case("布伦特福德-森林 2:0: 主让 + 压客 52, 热度主且主流主水 0.86 -> 以保护为准, 主队不败",
+     mk(dd=0.25, lw=1.05, wd=0.19, lb_ch=0.5, side="home",
+        push={"home": 2, "draw": 31, "away": 52}, dpp=[-2.5, 1.1, 1.4],
+        heat_cur=[44.5, 26.5, 29.0], main_hcp=0.25, mw_home=0.86, mw_away=1.02,
+        lb_full={"ch": 0.5, "ih": 0.5, "iw": 0.85, "cw": 1.05, "il": 0.83, "cl": 0.70}),
+     {}, "主队不败", ["压客共识"])
+
+case("维拉-富勒姆 1:1: 主让 + 压客 42, 热度主且主流主水 0.84 -> 以保护为准, 主队不败",
+     mk(dd=0.25, lw=1.00, wd=0.16, lb_ch=0.5, side="home",
+        push={"home": 3, "draw": 34, "away": 42}, dpp=[-4.0, 0.7, 3.3],
+        heat_cur=[44.5, 26.9, 28.6], main_hcp=0.25, mw_home=0.84, mw_away=1.035,
+        lb_full={"ch": 0.5, "ih": 0.5, "iw": 1.00, "cw": 1.00, "il": 0.73, "cl": 0.73}),
+     {}, "主队不败", ["压客共识"])
+
+# 封盘快照: 立博国米 1.00 -> 0.95 已降水, 否决不触发, 由保护线拦下.
+case("AC米兰-国米 3:1: 压客 49, 热度客但主流客水 1.025 未保护 -> 不出",
+     mk(dd=0.0, lw=0.95, wd=0.075, lb_ch=-0.5, side="away",
+        push={"home": 1, "draw": 51, "away": 49}, dpp=[-6.8, 1.9, 4.9],
+        heat_cur=[25.3, 27.4, 47.3], main_hcp=-0.5, mw_home=0.87, mw_away=1.025,
+        lb_full={"ch": -0.5, "ih": -0.5, "iw": 0.73, "cw": 0.75, "il": 1.00, "cl": 0.95}),
+     {}, "不出", ["压客共识"])
+
+case("考文垂-桑德兰 3:1: 压客 49, 热度客但主流客水 1.025 未保护 -> 不出 (旧版: 客队不败)",
+     mk(dd=0.25, lw=1.25, wd=0.225, lb_ch=-0.5, side="away",
+        push={"home": 2, "draw": 27, "away": 49}, dpp=[-3.2, 0.2, 2.9],
+        heat_cur=[31.6, 28.1, 40.3], main_hcp=-0.25, mw_home=0.865, mw_away=1.025,
+        lb_full={"ch": -0.5, "ih": -0.5, "iw": 0.50, "cw": 0.57, "il": 1.45, "cl": 1.25}),
      {}, "不出", ["压客共识"])
 
 case("基础概率>=75% + 反向压客共识 -> 主队胜",
